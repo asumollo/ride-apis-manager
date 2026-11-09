@@ -51,6 +51,7 @@ class RideSerializer(serializers.ModelSerializer):
     id_driver = serializers.PrimaryKeyRelatedField(source="driver", queryset=User.objects.all())
     rider = UserSerializer(read_only=True)
     driver = UserSerializer(read_only=True)
+    todays_ride_events = serializers.SerializerMethodField()
 
     class Meta:
         model = Ride
@@ -66,4 +67,9 @@ class RideSerializer(serializers.ModelSerializer):
             "dropoff_latitude",
             "dropoff_longitude",
             "pickup_time",
+            "todays_ride_events",
         ]
+
+    def get_todays_ride_events(self, ride: Ride) -> list[dict[str, Any]]:
+        events = getattr(ride, "todays_ride_events", [])
+        return [RideEventSerializer(event).data for event in events]

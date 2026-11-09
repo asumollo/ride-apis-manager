@@ -2,8 +2,11 @@ from typing import Any, ClassVar
 
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.contrib.postgres.indexes import GistIndex
 from django.db import models
 from django.utils import timezone
+
+from rides.geo import LLToEarth
 
 
 class UserManager(DjangoUserManager["User"]):
@@ -63,6 +66,18 @@ class Ride(models.Model):
 
     class Meta:
         db_table = "ride"
+        indexes = [
+            # ?ordering=pickup_time (id_ride is the tie-breaker)
+            models.Index(fields=["pickup_time", "id_ride"], name="ride_pickup_time_idx"),
+            # ?status=...&ordering=pickup_time
+            models.Index(
+                fields=["status", "pickup_time", "id_ride"], name="ride_status_pickup_time_idx"
+            ),
+            # ?ordering=distance: nearest-first walk over pickup points
+            GistIndex(
+                LLToEarth("pickup_latitude", "pickup_longitude"), name="ride_pickup_earth_idx"
+            ),
+        ]
 
 
 class RideEvent(models.Model):
@@ -72,9 +87,13 @@ class RideEvent(models.Model):
         on_delete=models.CASCADE,
         related_name="events",
         db_column="id_ride",
+        db_index=False,  # covered by ride_event_ride_created_idx
     )
     description = models.CharField(max_length=255)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "ride_event"
+        indexes = [
+            models.Index(fields=["ride", "created_at"], name="ride_event_ride_created_idx"),
+        ]

@@ -1,11 +1,16 @@
+import math
 from collections.abc import Sequence
+from typing import Any
 
 import django_filters
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Value
+from django.http import QueryDict
+from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
+from rides.geo import EarthDistance, LLToEarth
 from rides.models import Ride, RideEvent
 
 
@@ -29,6 +34,44 @@ class StableOrderingFilter(OrderingFilter):
             tie_breaker = "-id_ride" if ordering[0].startswith("-") else "id_ride"
             ordering = [*ordering, tie_breaker]
         return ordering
+
+
+class RideOrderingFilter(StableOrderingFilter):
+    # ?ordering=distance&lat=..&lng=.. sorts nearest pickup first.
+    def filter_queryset(
+        self, request: Request, queryset: QuerySet[Any], view: APIView
+    ) -> QuerySet[Any]:
+        ordering = request.query_params.get(self.ordering_param)
+        if ordering == "-distance":
+            raise ValidationError({"ordering": ["Distance can only be sorted nearest first."]})
+        if ordering != "distance":
+            return super().filter_queryset(request, queryset, view)
+        lat, lng = parse_point(request.query_params)
+        distance = EarthDistance(
+            LLToEarth("pickup_latitude", "pickup_longitude"),
+            LLToEarth(Value(lat), Value(lng)),
+        )
+        # no id_ride tie-break: it stops Postgres using the GiST index
+        return queryset.order_by(distance)
+
+
+def parse_point(params: QueryDict) -> list[float]:
+    errors: dict[str, list[str]] = {}
+    values: list[float] = []
+    for name, limit in (("lat", 90), ("lng", 180)):
+        raw = params.get(name, "")
+        try:
+            value = float(raw)
+        except ValueError:
+            errors[name] = ["A number is required when ordering by distance."]
+            continue
+        if not math.isfinite(value) or not -limit <= value <= limit:
+            errors[name] = [f"Must be between -{limit} and {limit}."]
+            continue
+        values.append(value)
+    if errors:
+        raise ValidationError(errors)
+    return values
 
 
 class RideEventFilter(django_filters.FilterSet):

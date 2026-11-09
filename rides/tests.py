@@ -13,6 +13,14 @@ from rides.models import Ride, RideEvent, User
 from rides.urls import router
 
 
+def explain(sql):
+    # Tiny test tables would always use a seq scan
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_seqscan = off")
+        cursor.execute("EXPLAIN " + sql)
+        return "\n".join(row[0] for row in cursor.fetchall())
+
+
 class RideListTests(APITestCase):
     """
     What a ride list page returns or how many queries it takes
@@ -49,6 +57,24 @@ class RideListTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(self.admin)
 
+    def test_list_uses_three_queries(self):
+        # 1 COUNT for pagination, 1 rides JOIN rider and driver, 1 for today's events.
+        with self.assertNumQueries(3):
+            response = self.client.get(reverse("ride-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["results"]), 5)
+
+    def test_todays_ride_events_only_has_last_24_hours(self):
+        response = self.client.get(reverse("ride-list"))
+        events = response.data["results"][0]["todays_ride_events"]
+        self.assertEqual([e["description"] for e in events], ["Status changed to pickup"])
+
+    def test_todays_events_query_can_use_an_index(self):
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("ride-list"))
+        events_sql = next(q["sql"] for q in ctx.captured_queries if 'FROM "ride_event"' in q["sql"])
+        self.assertIn("ride_event_ride_created_idx", explain(events_sql))
+
     def test_browsable_api_renders(self):
         pages = [reverse("api-root")]
         for _prefix, viewset, basename in router.registry:
@@ -62,6 +88,74 @@ class RideListTests(APITestCase):
             with self.subTest(url=url):
                 response = self.client.get(url, HTTP_ACCEPT="text/html")
                 self.assertEqual(response.status_code, 200)
+
+
+class RideDistanceOrderingTests(APITestCase):
+    """
+    Anything about ?ordering=distance (the lat/lng check, the order, the index)
+    """
+
+    admin: User
+    url: str
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        rider = User.objects.create_user(username="ana", email="ana@example.com")
+        driver = User.objects.create_user(username="chris", email="chris@example.com")
+        # From (14.60, 121.00): about 56 km, 1 km and 11 km away, created out of order
+        for lat in (15.10, 14.61, 14.70):
+            Ride.objects.create(
+                status=Ride.Status.PICKUP,
+                rider=rider,
+                driver=driver,
+                pickup_latitude=lat,
+                pickup_longitude=121.00,
+                dropoff_latitude=lat,
+                dropoff_longitude=121.00,
+                pickup_time=timezone.now(),
+            )
+        cls.url = reverse("ride-list")
+
+    def setUp(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_orders_nearest_pickup_first(self):
+        response = self.client.get(
+            self.url, {"ordering": "distance", "lat": "14.60", "lng": "121.00"}
+        )
+        self.assertEqual(response.status_code, 200)
+        lats = [ride["pickup_latitude"] for ride in response.data["results"]]
+        self.assertEqual(lats, [14.61, 14.70, 15.10])
+
+    def test_requires_lat_and_lng(self):
+        response = self.client.get(self.url, {"ordering": "distance"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.data), {"lat", "lng"})
+
+    def test_rejects_out_of_range_and_non_numbers(self):
+        for params in (
+            {"lat": "91", "lng": "0"},
+            {"lat": "0", "lng": "abc"},
+            {"lat": "nan", "lng": "0"},
+        ):
+            with self.subTest(params=params):
+                response = self.client.get(self.url, {"ordering": "distance", **params})
+                self.assertEqual(response.status_code, 400)
+
+    def test_rejects_farthest_first(self):
+        response = self.client.get(
+            self.url, {"ordering": "-distance", "lat": "14.6", "lng": "121.0"}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_distance_query_can_use_the_gist_index(self):
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(self.url, {"ordering": "distance", "lat": "14.6", "lng": "121.0"})
+        rides_sql = next(q["sql"] for q in ctx.captured_queries if "ll_to_earth" in q["sql"])
+        self.assertIn("ride_pickup_earth_idx", explain(rides_sql))
 
 
 class ErrorHandlingTests(APITestCase):
@@ -224,6 +318,17 @@ class RideFilterAndPaginationTests(APITestCase):
             self.assertIn(
                 f'ORDER BY "ride"."pickup_time" {direction}, "ride"."id_ride" {direction}', sql
             )
+
+    def test_pickup_time_sorting_can_use_an_index(self):
+        for params, index in (
+            ({"ordering": "pickup_time"}, "ride_pickup_time_idx"),
+            ({"ordering": "-pickup_time"}, "ride_pickup_time_idx"),
+            ({"status": "pickup", "ordering": "pickup_time"}, "ride_status_pickup_time_idx"),
+        ):
+            with self.subTest(params=params), CaptureQueriesContext(connection) as ctx:
+                self.client.get(self.url, params)
+            sql = next(q["sql"] for q in ctx.captured_queries if "LIMIT" in q["sql"])
+            self.assertIn(index, explain(sql))
 
 
 class RideEventFilterTests(APITestCase):
