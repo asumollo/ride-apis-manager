@@ -20,6 +20,19 @@ repos:
       - id: ruff-check
       - id: ruff-format
 
+  # Type checks with the Django plugin
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.1
+    hooks:
+      - id: mypy
+        entry: env DJANGO_DEBUG=1 mypy
+        args: ["."]
+        pass_filenames: false
+        additional_dependencies:
+          - Django==6.1.3
+          - psycopg[binary]==3.3.8
+          - django-stubs==6.1.2
+
   - repo: local
     hooks:
       - id: conventional-commit
