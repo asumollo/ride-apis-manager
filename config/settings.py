@@ -14,9 +14,14 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# For running without Docker. Variables already set win, then .env.local, then .env
+load_dotenv(BASE_DIR / ".env.local")
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -103,7 +108,7 @@ DATABASES = {
         "NAME": os.environ.get("POSTGRES_DB", "rides"),
         "USER": os.environ.get("POSTGRES_USER", "rides"),
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "rides"),
-        "HOST": os.environ.get("POSTGRES_HOST", "db"),
+        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
 }
