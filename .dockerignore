@@ -1,0 +1,6 @@
+# Keeps local files out of the Docker image
+
+.git/
+.venv/
+__pycache__/
+.env*
