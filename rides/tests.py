@@ -447,6 +447,12 @@ class UserApiTests(APITestCase):
         user.refresh_from_db()
         self.assertTrue(user.check_password("rides-are-fun-42"))
 
+    def test_password_cant_be_close_to_the_username(self):
+        payload = {"username": "lea.reyes", "email": "lea@example.com", "password": "lea.reyes1"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.data)
+
     def test_superuser_can_use_the_api(self):
         boss = User.objects.create_superuser("boss", "boss@example.com", "pass12345!")
         self.assertEqual(boss.role, User.Role.ADMIN)

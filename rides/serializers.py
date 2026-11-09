@@ -23,7 +23,14 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
     def validate_password(self, value: str) -> str:
-        password_validation.validate_password(value, self.instance)
+        # A new user isn't saved yet
+        user = self.instance or User(
+            username=self.initial_data.get("username", ""),
+            email=self.initial_data.get("email", ""),
+            first_name=self.initial_data.get("first_name", ""),
+            last_name=self.initial_data.get("last_name", ""),
+        )
+        password_validation.validate_password(value, user)
         return value
 
     def create(self, validated_data: dict[str, Any]) -> User:
