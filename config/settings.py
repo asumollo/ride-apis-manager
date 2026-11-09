@@ -42,7 +42,25 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
+    "rest_framework.authtoken",
+    "django_filters",
+    "rides",
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rides.permissions.IsAdminRole",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rides.pagination.StandardPagination",
+}
+
+AUTH_USER_MODEL = "rides.User"
+LOGIN_REDIRECT_URL = "/admin/"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
