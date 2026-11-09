@@ -1,12 +1,15 @@
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.db import OperationalError, connection
 from django.db.models import ProtectedError
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from rest_framework.authtoken.models import Token
 from rest_framework.generics import GenericAPIView
 from rest_framework.test import APITestCase
 
@@ -275,6 +278,36 @@ class ErrorHandlingTests(APITestCase):
         ):
             response = self.client.get(self.url)
         self.assertEqual(response.status_code, 503)
+
+
+class SeedCommandTests(TestCase):
+    """
+    The seed command’s options or the data it creates
+    """
+
+    def test_creates_admin_users_and_realistic_rides(self):
+        call_command("seed", rides=40, riders=5, drivers=3, stdout=StringIO())
+
+        admin = User.objects.get(username="admin")
+        self.assertEqual(admin.role, User.Role.ADMIN)
+        self.assertTrue(Token.objects.filter(user=admin).exists())
+        self.assertEqual(Ride.objects.count(), 40)
+        for ride in Ride.objects.prefetch_related("events"):
+            events = sorted(ride.events.all(), key=lambda e: e.created_at)
+            self.assertEqual(events[0].description, "Status changed to en-route")
+            self.assertEqual(ride.status, events[-1].description.removeprefix("Status changed to "))
+            self.assertNotEqual(ride.rider_id, ride.driver_id)
+
+    def test_running_twice_reuses_users(self):
+        call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
+        call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
+        self.assertEqual(User.objects.count(), 1 + 5 + 3)
+        self.assertEqual(Ride.objects.count(), 10)
+
+    def test_reset_replaces_rides(self):
+        call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
+        call_command("seed", rides=3, riders=5, drivers=3, reset=True, stdout=StringIO())
+        self.assertEqual(Ride.objects.count(), 3)
 
 
 class RideFilterAndPaginationTests(APITestCase):
