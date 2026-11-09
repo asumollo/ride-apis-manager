@@ -11,3 +11,5 @@ __pycache__/
 .env.local
 # macOS Finder metadata
 .DS_Store
+# Ruff lint cache
+.ruff_cache/
