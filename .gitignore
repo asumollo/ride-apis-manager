@@ -1,0 +1,13 @@
+# Keeps local and generated files out of the repo
+
+# Python bytecode caches
+__pycache__/
+# Compiled Python files
+*.py[cod]
+# Local virtual environment
+.venv/
+# Local secrets and config
+.env
+.env.local
+# macOS Finder metadata
+.DS_Store
