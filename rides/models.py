@@ -3,6 +3,7 @@ from typing import Any, ClassVar
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(DjangoUserManager["User"]):
@@ -32,3 +33,48 @@ class User(AbstractUser):
 
     class Meta:
         db_table = "users"
+
+
+class Ride(models.Model):
+    class Status(models.TextChoices):
+        EN_ROUTE = "en-route", "En route"
+        PICKUP = "pickup", "Pickup"
+        DROPOFF = "dropoff", "Dropoff"
+
+    id_ride = models.AutoField(primary_key=True)
+    status = models.CharField(max_length=20, choices=Status.choices)
+    rider = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="rides_as_rider",
+        db_column="id_rider",
+    )
+    driver = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="rides_as_driver",
+        db_column="id_driver",
+    )
+    pickup_latitude = models.FloatField()
+    pickup_longitude = models.FloatField()
+    dropoff_latitude = models.FloatField()
+    dropoff_longitude = models.FloatField()
+    pickup_time = models.DateTimeField()
+
+    class Meta:
+        db_table = "ride"
+
+
+class RideEvent(models.Model):
+    id_ride_event = models.AutoField(primary_key=True)
+    ride = models.ForeignKey(
+        Ride,
+        on_delete=models.CASCADE,
+        related_name="events",
+        db_column="id_ride",
+    )
+    description = models.CharField(max_length=255)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "ride_event"
