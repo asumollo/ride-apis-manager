@@ -70,6 +70,23 @@ class Ride(models.Model):
 
     class Meta:
         db_table = "ride"
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(rider=models.F("driver")),
+                name="ride_rider_not_driver",
+                violation_error_message="The driver can't also be the rider.",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    pickup_latitude__range=(-90, 90),
+                    dropoff_latitude__range=(-90, 90),
+                    pickup_longitude__range=(-180, 180),
+                    dropoff_longitude__range=(-180, 180),
+                ),
+                name="ride_coordinates_in_range",
+                violation_error_message="Coordinates are out of range.",
+            ),
+        ]
         indexes = [
             # ?ordering=pickup_time (id_ride is the tie-breaker)
             models.Index(fields=["pickup_time", "id_ride"], name="ride_pickup_time_idx"),

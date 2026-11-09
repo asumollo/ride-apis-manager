@@ -2,8 +2,9 @@ from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.db import OperationalError, connection
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -538,7 +539,7 @@ class UserApiTests(APITestCase):
 
 class RideModelTests(TestCase):
     """
-    What deleting a ride or a user does to the rows linked to it
+    What deleting a ride or a user does to the rows linked to it, and rules the database enforces
     """
 
     ride: Ride
@@ -566,6 +567,29 @@ class RideModelTests(TestCase):
     def test_user_on_a_ride_cant_be_deleted(self):
         with self.assertRaises(ProtectedError):
             self.ride.driver.delete()
+
+    def test_rider_cant_be_the_driver(self):
+        ride = Ride(
+            status=Ride.Status.PICKUP,
+            rider=self.ride.rider,
+            driver=self.ride.rider,
+            pickup_latitude=14.6,
+            pickup_longitude=121.0,
+            dropoff_latitude=14.5,
+            dropoff_longitude=121.1,
+            pickup_time=timezone.now(),
+        )
+        # The admin's form check
+        with self.assertRaisesMessage(ValidationError, "The driver can't also be the rider."):
+            ride.full_clean()
+        # Any path that skips validation
+        with transaction.atomic(), self.assertRaises(IntegrityError):
+            ride.save()
+
+    def test_coordinates_must_be_in_range(self):
+        # update() skips model validation, so only the database can stop it
+        with transaction.atomic(), self.assertRaises(IntegrityError):
+            Ride.objects.filter(pk=self.ride.pk).update(pickup_latitude=500)
 
 
 class UserManagerTests(TestCase):
