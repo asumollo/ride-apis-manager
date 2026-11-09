@@ -524,6 +524,20 @@ class UserApiTests(APITestCase):
         user.refresh_from_db()
         self.assertTrue(user.check_password("rides-are-fun-42"))
 
+    def test_update_with_password_is_one_write(self):
+        # Two writes could leave the email changed when the password save fails
+        user = User.objects.create_user(username="lea", email="lea@example.com")
+        url = reverse("user-detail", args=[user.pk])
+        payload = {"email": "lea.g@example.com", "password": "rides-are-fun-42"}
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.patch(url, payload, format="json")
+        self.assertEqual(response.status_code, 200)
+        updates = [q for q in ctx.captured_queries if q["sql"].startswith('UPDATE "users"')]
+        self.assertEqual(len(updates), 1)
+        user.refresh_from_db()
+        self.assertEqual(user.email, "lea.g@example.com")
+        self.assertTrue(user.check_password("rides-are-fun-42"))
+
     def test_password_cant_be_close_to_the_username(self):
         payload = {"username": "lea.reyes", "email": "lea@example.com", "password": "lea.reyes1"}
         response = self.client.post(self.url, payload, format="json")
