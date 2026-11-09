@@ -2,8 +2,11 @@ from typing import Any, ClassVar
 
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.contrib.postgres.indexes import GistIndex
 from django.db import models
 from django.utils import timezone
+
+from rides.geo import LLToEarth
 
 
 class UserManager(DjangoUserManager["User"]):
@@ -69,6 +72,10 @@ class Ride(models.Model):
             # ?status=...&ordering=pickup_time
             models.Index(
                 fields=["status", "pickup_time", "id_ride"], name="ride_status_pickup_time_idx"
+            ),
+            # ?ordering=distance: nearest-first walk over pickup points
+            GistIndex(
+                LLToEarth("pickup_latitude", "pickup_longitude"), name="ride_pickup_earth_idx"
             ),
         ]
 

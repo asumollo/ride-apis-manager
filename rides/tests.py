@@ -90,6 +90,74 @@ class RideListTests(APITestCase):
                 self.assertEqual(response.status_code, 200)
 
 
+class RideDistanceOrderingTests(APITestCase):
+    """
+    Anything about ?ordering=distance (the lat/lng check, the order, the index)
+    """
+
+    admin: User
+    url: str
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        rider = User.objects.create_user(username="ana", email="ana@example.com")
+        driver = User.objects.create_user(username="chris", email="chris@example.com")
+        # From (14.60, 121.00): about 56 km, 1 km and 11 km away, created out of order
+        for lat in (15.10, 14.61, 14.70):
+            Ride.objects.create(
+                status=Ride.Status.PICKUP,
+                rider=rider,
+                driver=driver,
+                pickup_latitude=lat,
+                pickup_longitude=121.00,
+                dropoff_latitude=lat,
+                dropoff_longitude=121.00,
+                pickup_time=timezone.now(),
+            )
+        cls.url = reverse("ride-list")
+
+    def setUp(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_orders_nearest_pickup_first(self):
+        response = self.client.get(
+            self.url, {"ordering": "distance", "lat": "14.60", "lng": "121.00"}
+        )
+        self.assertEqual(response.status_code, 200)
+        lats = [ride["pickup_latitude"] for ride in response.data["results"]]
+        self.assertEqual(lats, [14.61, 14.70, 15.10])
+
+    def test_requires_lat_and_lng(self):
+        response = self.client.get(self.url, {"ordering": "distance"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.data), {"lat", "lng"})
+
+    def test_rejects_out_of_range_and_non_numbers(self):
+        for params in (
+            {"lat": "91", "lng": "0"},
+            {"lat": "0", "lng": "abc"},
+            {"lat": "nan", "lng": "0"},
+        ):
+            with self.subTest(params=params):
+                response = self.client.get(self.url, {"ordering": "distance", **params})
+                self.assertEqual(response.status_code, 400)
+
+    def test_rejects_farthest_first(self):
+        response = self.client.get(
+            self.url, {"ordering": "-distance", "lat": "14.6", "lng": "121.0"}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_distance_query_can_use_the_gist_index(self):
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(self.url, {"ordering": "distance", "lat": "14.6", "lng": "121.0"})
+        rides_sql = next(q["sql"] for q in ctx.captured_queries if "ll_to_earth" in q["sql"])
+        self.assertIn("ride_pickup_earth_idx", explain(rides_sql))
+
+
 class ErrorHandlingTests(APITestCase):
     """
     Error handling across the API: a new status code, or a new rule on ride data

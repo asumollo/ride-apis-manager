@@ -5,7 +5,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
-from rides.filters import RideEventFilter, RideFilter, StableOrderingFilter
+from rides.filters import RideEventFilter, RideFilter, RideOrderingFilter
 from rides.models import Ride, RideEvent, User
 from rides.serializers import RideEventSerializer, RideSerializer, UserSerializer
 
@@ -18,7 +18,7 @@ class UserViewSet(viewsets.ModelViewSet):
 class RideViewSet(viewsets.ModelViewSet):
     queryset = Ride.objects.select_related("rider", "driver").order_by("id_ride")
     serializer_class = RideSerializer
-    filter_backends = [DjangoFilterBackend, StableOrderingFilter]
+    filter_backends = [DjangoFilterBackend, RideOrderingFilter]
     filterset_class = RideFilter
     ordering_fields = ["pickup_time"]
 
