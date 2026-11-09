@@ -1,9 +1,12 @@
 from datetime import timedelta
+from typing import Any
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Prefetch, ProtectedError, QuerySet
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import viewsets
+from rest_framework import status, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from rides.filters import RideEventFilter, RideFilter, RideOrderingFilter
 from rides.models import Ride, RideEvent, User
@@ -13,6 +16,15 @@ from rides.serializers import RideEventSerializer, RideSerializer, UserSerialize
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.order_by("id_user")
     serializer_class = UserSerializer
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"detail": "This user is on one or more rides and can't be deleted."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
 
 class RideViewSet(viewsets.ModelViewSet):

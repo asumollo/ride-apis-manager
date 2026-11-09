@@ -1,6 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.db.models import ProtectedError
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -237,6 +238,31 @@ class ErrorHandlingTests(APITestCase):
         self.client.force_authenticate(self.admin)
         response = self.client.post(self.url, '{"status": ', content_type="application/json")
         self.assertEqual(response.status_code, 400)
+
+    def test_deleting_a_user_with_rides_is_409(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.delete(reverse("user-detail", args=[self.driver.pk]))
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(User.objects.filter(pk=self.driver.pk).exists())
+
+    def test_unexpected_error_is_json_500(self):
+        self.client.force_authenticate(self.admin)
+        with (
+            patch("rides.views.RideViewSet.get_queryset", side_effect=RuntimeError("boom")),
+            self.assertLogs("rides.exceptions", level="ERROR"),
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Something went wrong on our side."})
+
+    def test_database_outage_is_503(self):
+        self.client.force_authenticate(self.admin)
+        with (
+            patch("rides.views.RideViewSet.get_queryset", side_effect=OperationalError("down")),
+            self.assertLogs("rides.exceptions", level="ERROR"),
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 503)
 
 
 class RideFilterAndPaginationTests(APITestCase):
