@@ -63,6 +63,14 @@ class Ride(models.Model):
 
     class Meta:
         db_table = "ride"
+        indexes = [
+            # ?ordering=pickup_time (id_ride is the tie-breaker)
+            models.Index(fields=["pickup_time", "id_ride"], name="ride_pickup_time_idx"),
+            # ?status=...&ordering=pickup_time
+            models.Index(
+                fields=["status", "pickup_time", "id_ride"], name="ride_status_pickup_time_idx"
+            ),
+        ]
 
 
 class RideEvent(models.Model):
@@ -72,9 +80,13 @@ class RideEvent(models.Model):
         on_delete=models.CASCADE,
         related_name="events",
         db_column="id_ride",
+        db_index=False,  # covered by ride_event_ride_created_idx
     )
     description = models.CharField(max_length=255)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "ride_event"
+        indexes = [
+            models.Index(fields=["ride", "created_at"], name="ride_event_ride_created_idx"),
+        ]

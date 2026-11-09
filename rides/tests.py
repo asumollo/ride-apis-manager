@@ -13,6 +13,14 @@ from rides.models import Ride, RideEvent, User
 from rides.urls import router
 
 
+def explain(sql):
+    # Tiny test tables would always use a seq scan
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_seqscan = off")
+        cursor.execute("EXPLAIN " + sql)
+        return "\n".join(row[0] for row in cursor.fetchall())
+
+
 class RideListTests(APITestCase):
     """
     What a ride list page returns or how many queries it takes
@@ -60,6 +68,12 @@ class RideListTests(APITestCase):
         response = self.client.get(reverse("ride-list"))
         events = response.data["results"][0]["todays_ride_events"]
         self.assertEqual([e["description"] for e in events], ["Status changed to pickup"])
+
+    def test_todays_events_query_can_use_an_index(self):
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("ride-list"))
+        events_sql = next(q["sql"] for q in ctx.captured_queries if 'FROM "ride_event"' in q["sql"])
+        self.assertIn("ride_event_ride_created_idx", explain(events_sql))
 
     def test_browsable_api_renders(self):
         pages = [reverse("api-root")]
@@ -236,6 +250,17 @@ class RideFilterAndPaginationTests(APITestCase):
             self.assertIn(
                 f'ORDER BY "ride"."pickup_time" {direction}, "ride"."id_ride" {direction}', sql
             )
+
+    def test_pickup_time_sorting_can_use_an_index(self):
+        for params, index in (
+            ({"ordering": "pickup_time"}, "ride_pickup_time_idx"),
+            ({"ordering": "-pickup_time"}, "ride_pickup_time_idx"),
+            ({"status": "pickup", "ordering": "pickup_time"}, "ride_status_pickup_time_idx"),
+        ):
+            with self.subTest(params=params), CaptureQueriesContext(connection) as ctx:
+                self.client.get(self.url, params)
+            sql = next(q["sql"] for q in ctx.captured_queries if "LIMIT" in q["sql"])
+            self.assertIn(index, explain(sql))
 
 
 class RideEventFilterTests(APITestCase):
