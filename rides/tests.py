@@ -1,8 +1,171 @@
+from datetime import timedelta
+
 from django.db.models import ProtectedError
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
+from rest_framework.generics import GenericAPIView
+from rest_framework.test import APITestCase
 
 from rides.models import Ride, RideEvent, User
+from rides.urls import router
+
+
+class RideListTests(APITestCase):
+    """
+    What a ride list page returns or how many queries it takes
+    """
+
+    admin: User
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        rider = User.objects.create_user(username="ana", email="ana@example.com")
+        driver = User.objects.create_user(username="chris", email="chris@example.com")
+        now = timezone.now()
+        for i in range(5):
+            ride = Ride.objects.create(
+                status=Ride.Status.PICKUP,
+                rider=rider,
+                driver=driver,
+                pickup_latitude=14.60,
+                pickup_longitude=121.00,
+                dropoff_latitude=14.55,
+                dropoff_longitude=121.05,
+                pickup_time=now + timedelta(hours=i),
+            )
+            RideEvent.objects.create(
+                ride=ride, description="Status changed to pickup", created_at=now
+            )
+            RideEvent.objects.create(
+                ride=ride, description="Old event", created_at=now - timedelta(days=2)
+            )
+
+    def setUp(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_browsable_api_renders(self):
+        pages = [reverse("api-root")]
+        for _prefix, viewset, basename in router.registry:
+            pages.append(reverse(f"{basename}-list"))
+            assert issubclass(viewset, GenericAPIView) and viewset.queryset is not None
+            obj = viewset.queryset.first()
+            assert obj is not None, f"Add a {basename} to setUpTestData"
+            pages.append(reverse(f"{basename}-detail", args=[obj.pk]))
+
+        for url in pages:
+            with self.subTest(url=url):
+                response = self.client.get(url, HTTP_ACCEPT="text/html")
+                self.assertEqual(response.status_code, 200)
+
+
+class ErrorHandlingTests(APITestCase):
+    """
+    Error handling across the API: a new status code, or a new rule on ride data
+    """
+
+    admin: User
+    rider: User
+    driver: User
+    ride: Ride
+    url: str
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        cls.rider = User.objects.create_user(username="ana", email="ana@example.com")
+        cls.driver = User.objects.create_user(username="chris", email="chris@example.com")
+        cls.ride = Ride.objects.create(
+            status=Ride.Status.PICKUP,
+            rider=cls.rider,
+            driver=cls.driver,
+            pickup_latitude=14.6,
+            pickup_longitude=121.0,
+            dropoff_latitude=14.5,
+            dropoff_longitude=121.1,
+            pickup_time=timezone.now(),
+        )
+        cls.url = reverse("ride-list")
+
+    def ride_payload(self, **overrides):
+        payload = {
+            "status": "pickup",
+            "id_rider": self.rider.pk,
+            "id_driver": self.driver.pk,
+            "pickup_latitude": 14.6,
+            "pickup_longitude": 121.0,
+            "dropoff_latitude": 14.5,
+            "dropoff_longitude": 121.1,
+            "pickup_time": "2026-11-08T09:00:00Z",
+        }
+        return {**payload, **overrides}
+
+    def test_unknown_ride_is_404(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(reverse("ride-detail", args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_invalid_ride_fields_are_400(self):
+        self.client.force_authenticate(self.admin)
+        payload = self.ride_payload(status="pikup", pickup_latitude="north")
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.data), {"status", "pickup_latitude"})
+
+    def test_malformed_json_is_400(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(self.url, '{"status": ', content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+
+
+class UserApiTests(APITestCase):
+    """
+    What /api/users/ accepts or returns
+    """
+
+    admin: User
+    url: str
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        cls.url = reverse("user-list")
+
+    def setUp(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_created_user_can_log_in(self):
+        payload = {"username": "lea", "email": "lea@example.com", "password": "rides-are-fun-42"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn("password", response.data)
+        self.assertTrue(User.objects.get(username="lea").check_password("rides-are-fun-42"))
+
+    def test_weak_password_is_400(self):
+        payload = {"username": "lea", "email": "lea@example.com", "password": "123"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.data)
+
+    def test_user_without_password_cannot_log_in(self):
+        payload = {"username": "lea", "email": "lea@example.com"}
+        self.assertEqual(self.client.post(self.url, payload, format="json").status_code, 201)
+        self.assertFalse(User.objects.get(username="lea").has_usable_password())
+
+    def test_patch_changes_password(self):
+        user = User.objects.create_user(username="lea", email="lea@example.com")
+        url = reverse("user-detail", args=[user.pk])
+        response = self.client.patch(url, {"password": "rides-are-fun-42"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("rides-are-fun-42"))
 
 
 class RideModelTests(TestCase):
