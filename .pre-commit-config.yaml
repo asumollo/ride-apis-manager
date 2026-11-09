@@ -1,5 +1,5 @@
 # Catches messy code and badly written commit messages
-default_install_hook_types: [pre-commit]
+default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit]
 
 repos:
@@ -19,3 +19,11 @@ repos:
     hooks:
       - id: ruff-check
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: conventional-commit
+        name: flat conventional commit message
+        language: python
+        entry: python scripts/check_commit_msg.py
+        stages: [commit-msg]
