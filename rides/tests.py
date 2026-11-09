@@ -479,6 +479,26 @@ class AdminPanelTests(TestCase):
                 response = self.client.get(reverse(f"admin:rides_{model}_changelist"))
                 self.assertEqual(response.status_code, 200)
 
+    def test_adding_a_user_requires_a_unique_email(self):
+        boss = User.objects.create_superuser("boss", "boss@example.com", "pass12345!")
+        self.client.force_login(boss)
+        url = reverse("admin:rides_user_add")
+        form = {
+            "username": "lea",
+            "usable_password": "true",
+            "password1": "rides-are-fun-42",
+            "password2": "rides-are-fun-42",
+            "role": "other",
+        }
+        for email in ("", "boss@example.com"):
+            with self.subTest(email=email):
+                response = self.client.post(url, {**form, "email": email})
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.context["adminform"].form.errors["email"])
+        response = self.client.post(url, {**form, "email": "lea@example.com"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(User.objects.get(username="lea").email, "lea@example.com")
+
 
 class UserApiTests(APITestCase):
     """

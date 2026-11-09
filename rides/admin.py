@@ -11,6 +11,8 @@ class RideUserAdmin(UserAdmin):
     list_display = ["username", "email", "role", "is_staff"]
     list_filter = ["role", "is_staff"]
     fieldsets = [*(UserAdmin.fieldsets or ()), ("Ride app", {"fields": ["role", "phone_number"]})]
+    # Email is required and unique, so ask for it when adding a user
+    add_fieldsets = [*UserAdmin.add_fieldsets, ("Ride app", {"fields": ["email", "role"]})]
 
 
 @admin.register(Ride)
