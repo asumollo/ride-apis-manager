@@ -58,6 +58,7 @@ REST_FRAMEWORK = {
 }
 
 AUTH_USER_MODEL = "rides.User"
+LOGIN_REDIRECT_URL = "/admin/"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

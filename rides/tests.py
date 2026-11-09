@@ -132,6 +132,20 @@ class ErrorHandlingTests(APITestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class AdminPanelTests(TestCase):
+    """
+    What the Django admin shows
+    """
+
+    def test_changelists_load(self):
+        boss = User.objects.create_superuser("boss", "boss@example.com", "pass12345!")
+        self.client.force_login(boss)
+        for model in ("user", "ride", "rideevent"):
+            with self.subTest(model=model):
+                response = self.client.get(reverse(f"admin:rides_{model}_changelist"))
+                self.assertEqual(response.status_code, 200)
+
+
 class UserApiTests(APITestCase):
     """
     What /api/users/ accepts or returns
