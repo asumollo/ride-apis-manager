@@ -49,6 +49,18 @@ class RideListTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(self.admin)
 
+    def test_list_uses_three_queries(self):
+        # 1 COUNT for pagination, 1 rides JOIN rider and driver, 1 for today's events.
+        with self.assertNumQueries(3):
+            response = self.client.get(reverse("ride-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["results"]), 5)
+
+    def test_todays_ride_events_only_has_last_24_hours(self):
+        response = self.client.get(reverse("ride-list"))
+        events = response.data["results"][0]["todays_ride_events"]
+        self.assertEqual([e["description"] for e in events], ["Status changed to pickup"])
+
     def test_browsable_api_renders(self):
         pages = [reverse("api-root")]
         for _prefix, viewset, basename in router.registry:

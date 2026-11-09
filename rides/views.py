@@ -1,3 +1,7 @@
+from datetime import timedelta
+
+from django.db.models import Prefetch, QuerySet
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
@@ -17,6 +21,12 @@ class RideViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, StableOrderingFilter]
     filterset_class = RideFilter
     ordering_fields = ["pickup_time"]
+
+    def get_queryset(self) -> QuerySet[Ride]:
+        since = timezone.now() - timedelta(hours=24)
+        todays_events = RideEvent.objects.filter(created_at__gte=since).order_by("-created_at")
+        prefetch = Prefetch("events", queryset=todays_events, to_attr="todays_ride_events")
+        return super().get_queryset().prefetch_related(prefetch)
 
 
 class RideEventViewSet(viewsets.ModelViewSet):
