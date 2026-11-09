@@ -234,6 +234,18 @@ class ErrorHandlingTests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_unknown_query_parameter_is_400(self):
+        self.client.force_authenticate(self.admin)
+        for url, params in (
+            (self.url, {"stauts": "pickup"}),
+            (reverse("user-list"), {"status": "pickup"}),
+            (reverse("rideevent-list"), {"ride": self.ride.pk}),
+        ):
+            with self.subTest(url=url, params=params):
+                response = self.client.get(url, params)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(set(response.data), set(params))
+
     def test_malformed_json_is_400(self):
         self.client.force_authenticate(self.admin)
         response = self.client.post(self.url, '{"status": ', content_type="application/json")
@@ -339,6 +351,11 @@ class RideFilterAndPaginationTests(APITestCase):
         self.assertIsNone(second["next"])
         self.assertEqual(len(self.client.get(self.url, {"page_size": 5}).data["results"]), 5)
         self.assertEqual(self.client.get(self.url, {"page": 99}).status_code, 404)
+
+    def test_unknown_ordering_is_400(self):
+        response = self.client.get(self.url, {"ordering": "status"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("ordering", response.data)
 
     def test_pickup_time_sorting_covers_every_ride_once(self):
         for ordering in ("pickup_time", "-pickup_time"):
