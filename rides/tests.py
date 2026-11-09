@@ -68,6 +68,7 @@ class ErrorHandlingTests(APITestCase):
     """
 
     admin: User
+    other: User
     rider: User
     driver: User
     ride: Ride
@@ -78,6 +79,7 @@ class ErrorHandlingTests(APITestCase):
         cls.admin = User.objects.create_user(
             username="admin", email="admin@example.com", password="pass12345!", role="admin"
         )
+        cls.other = User.objects.create_user(username="ops", email="ops@example.com")
         cls.rider = User.objects.create_user(username="ana", email="ana@example.com")
         cls.driver = User.objects.create_user(username="chris", email="chris@example.com")
         cls.ride = Ride.objects.create(
@@ -104,6 +106,13 @@ class ErrorHandlingTests(APITestCase):
             "pickup_time": "2026-11-08T09:00:00Z",
         }
         return {**payload, **overrides}
+
+    def test_missing_token_is_401(self):
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_non_admin_is_403(self):
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
 
     def test_unknown_ride_is_404(self):
         self.client.force_authenticate(self.admin)
@@ -166,6 +175,12 @@ class UserApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         user.refresh_from_db()
         self.assertTrue(user.check_password("rides-are-fun-42"))
+
+    def test_superuser_can_use_the_api(self):
+        boss = User.objects.create_superuser("boss", "boss@example.com", "pass12345!")
+        self.assertEqual(boss.role, User.Role.ADMIN)
+        self.client.force_authenticate(boss)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
 
 
 class RideModelTests(TestCase):
