@@ -132,6 +132,54 @@ class ErrorHandlingTests(APITestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class RideFilterAndPaginationTests(APITestCase):
+    """
+    Filters, sort fields or page settings on /api/rides/
+    """
+
+    admin: User
+    ana: User
+    ben: User
+    url: str
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        cls.ana = User.objects.create_user(username="ana", email="Ana.Reyes@Example.com")
+        cls.ben = User.objects.create_user(username="ben", email="ben@example.com")
+        driver = User.objects.create_user(username="chris", email="chris@example.com")
+        statuses = [Ride.Status.PICKUP, Ride.Status.DROPOFF, Ride.Status.EN_ROUTE]
+        base = timezone.now()
+        # 12 rides; every 3 share a pickup_time, so sorting needs the id_ride tie-breaker
+        for i in range(12):
+            Ride.objects.create(
+                status=statuses[i % 3],
+                rider=cls.ana if i % 2 == 0 else cls.ben,
+                driver=driver,
+                pickup_latitude=14.6,
+                pickup_longitude=121.0,
+                dropoff_latitude=14.5,
+                dropoff_longitude=121.1,
+                pickup_time=base + timedelta(hours=i % 4),
+            )
+        cls.url = reverse("ride-list")
+
+    def setUp(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_pagination(self):
+        first = self.client.get(self.url).data
+        self.assertEqual((first["count"], len(first["results"])), (12, 10))
+        self.assertIsNotNone(first["next"])
+        second = self.client.get(self.url, {"page": 2}).data
+        self.assertEqual(len(second["results"]), 2)
+        self.assertIsNone(second["next"])
+        self.assertEqual(len(self.client.get(self.url, {"page_size": 5}).data["results"]), 5)
+        self.assertEqual(self.client.get(self.url, {"page": 99}).status_code, 404)
+
+
 class AdminPanelTests(TestCase):
     """
     What the Django admin shows
