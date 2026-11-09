@@ -1,6 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.db.models import ProtectedError
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -217,15 +218,63 @@ class ErrorHandlingTests(APITestCase):
 
     def test_invalid_ride_fields_are_400(self):
         self.client.force_authenticate(self.admin)
-        payload = self.ride_payload(status="pikup", pickup_latitude="north")
+        payload = self.ride_payload(status="pikup", pickup_latitude=91, dropoff_longitude=-181)
         response = self.client.post(self.url, payload, format="json")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(set(response.data), {"status", "pickup_latitude"})
+        self.assertEqual(set(response.data), {"status", "pickup_latitude", "dropoff_longitude"})
+
+    def test_rider_and_driver_must_differ(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(
+            self.url, self.ride_payload(id_driver=self.rider.pk), format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        response = self.client.patch(
+            reverse("ride-detail", args=[self.ride.pk]), {"id_driver": self.rider.pk}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_unknown_query_parameter_is_400(self):
+        self.client.force_authenticate(self.admin)
+        for url, params in (
+            (self.url, {"stauts": "pickup"}),
+            (reverse("user-list"), {"status": "pickup"}),
+            (reverse("rideevent-list"), {"ride": self.ride.pk}),
+        ):
+            with self.subTest(url=url, params=params):
+                response = self.client.get(url, params)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(set(response.data), set(params))
 
     def test_malformed_json_is_400(self):
         self.client.force_authenticate(self.admin)
         response = self.client.post(self.url, '{"status": ', content_type="application/json")
         self.assertEqual(response.status_code, 400)
+
+    def test_deleting_a_user_with_rides_is_409(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.delete(reverse("user-detail", args=[self.driver.pk]))
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(User.objects.filter(pk=self.driver.pk).exists())
+
+    def test_unexpected_error_is_json_500(self):
+        self.client.force_authenticate(self.admin)
+        with (
+            patch("rides.views.RideViewSet.get_queryset", side_effect=RuntimeError("boom")),
+            self.assertLogs("rides.exceptions", level="ERROR"),
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Something went wrong on our side."})
+
+    def test_database_outage_is_503(self):
+        self.client.force_authenticate(self.admin)
+        with (
+            patch("rides.views.RideViewSet.get_queryset", side_effect=OperationalError("down")),
+            self.assertLogs("rides.exceptions", level="ERROR"),
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 503)
 
 
 class RideFilterAndPaginationTests(APITestCase):
@@ -302,6 +351,11 @@ class RideFilterAndPaginationTests(APITestCase):
         self.assertIsNone(second["next"])
         self.assertEqual(len(self.client.get(self.url, {"page_size": 5}).data["results"]), 5)
         self.assertEqual(self.client.get(self.url, {"page": 99}).status_code, 404)
+
+    def test_unknown_ordering_is_400(self):
+        response = self.client.get(self.url, {"ordering": "status"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("ordering", response.data)
 
     def test_pickup_time_sorting_covers_every_ride_once(self):
         for ordering in ("pickup_time", "-pickup_time"):
@@ -435,6 +489,12 @@ class UserApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         user.refresh_from_db()
         self.assertTrue(user.check_password("rides-are-fun-42"))
+
+    def test_password_cant_be_close_to_the_username(self):
+        payload = {"username": "lea.reyes", "email": "lea@example.com", "password": "lea.reyes1"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.data)
 
     def test_superuser_can_use_the_api(self):
         boss = User.objects.create_superuser("boss", "boss@example.com", "pass12345!")

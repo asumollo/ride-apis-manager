@@ -58,6 +58,7 @@ REST_FRAMEWORK = {
         "rides.permissions.IsAdminRole",
     ],
     "DEFAULT_PAGINATION_CLASS": "rides.pagination.StandardPagination",
+    "EXCEPTION_HANDLER": "rides.exceptions.api_exception_handler",
 }
 
 AUTH_USER_MODEL = "rides.User"

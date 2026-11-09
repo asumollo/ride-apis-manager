@@ -3,10 +3,14 @@ from typing import Any, ClassVar
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
 from django.contrib.postgres.indexes import GistIndex
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
 from rides.geo import LLToEarth
+
+LATITUDE = [MinValueValidator(-90), MaxValueValidator(90)]
+LONGITUDE = [MinValueValidator(-180), MaxValueValidator(180)]
 
 
 class UserManager(DjangoUserManager["User"]):
@@ -58,10 +62,10 @@ class Ride(models.Model):
         related_name="rides_as_driver",
         db_column="id_driver",
     )
-    pickup_latitude = models.FloatField()
-    pickup_longitude = models.FloatField()
-    dropoff_latitude = models.FloatField()
-    dropoff_longitude = models.FloatField()
+    pickup_latitude = models.FloatField(validators=LATITUDE)
+    pickup_longitude = models.FloatField(validators=LONGITUDE)
+    dropoff_latitude = models.FloatField(validators=LATITUDE)
+    dropoff_longitude = models.FloatField(validators=LONGITUDE)
     pickup_time = models.DateTimeField()
 
     class Meta:

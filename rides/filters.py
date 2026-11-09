@@ -42,8 +42,11 @@ class RideOrderingFilter(StableOrderingFilter):
         self, request: Request, queryset: QuerySet[Any], view: APIView
     ) -> QuerySet[Any]:
         ordering = request.query_params.get(self.ordering_param)
-        if ordering == "-distance":
-            raise ValidationError({"ordering": ["Distance can only be sorted nearest first."]})
+        # DRF ignores unknown fields
+        fields = getattr(view, "ordering_fields", [])
+        allowed = [*fields, *(f"-{field}" for field in fields), "distance"]
+        if ordering and ordering not in allowed:
+            raise ValidationError({"ordering": [f"Use one of: {', '.join(allowed)}."]})
         if ordering != "distance":
             return super().filter_queryset(request, queryset, view)
         lat, lng = parse_point(request.query_params)

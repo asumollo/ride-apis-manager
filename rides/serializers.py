@@ -23,7 +23,14 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
     def validate_password(self, value: str) -> str:
-        password_validation.validate_password(value, self.instance)
+        # A new user isn't saved yet
+        user = self.instance or User(
+            username=self.initial_data.get("username", ""),
+            email=self.initial_data.get("email", ""),
+            first_name=self.initial_data.get("first_name", ""),
+            last_name=self.initial_data.get("last_name", ""),
+        )
+        password_validation.validate_password(value, user)
         return value
 
     def create(self, validated_data: dict[str, Any]) -> User:
@@ -69,6 +76,15 @@ class RideSerializer(serializers.ModelSerializer):
             "pickup_time",
             "todays_ride_events",
         ]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        rider = attrs.get("rider", getattr(self.instance, "rider", None))
+        driver = attrs.get("driver", getattr(self.instance, "driver", None))
+        if rider is not None and rider == driver:
+            raise serializers.ValidationError(
+                {"id_driver": ["The driver can't also be the rider."]}
+            )
+        return attrs
 
     def get_todays_ride_events(self, ride: Ride) -> list[dict[str, Any]]:
         events = getattr(ride, "todays_ride_events", [])
