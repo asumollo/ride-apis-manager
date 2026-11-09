@@ -169,6 +169,25 @@ class RideFilterAndPaginationTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(self.admin)
 
+    def test_filter_by_status(self):
+        data = self.client.get(self.url, {"status": "dropoff"}).data
+        self.assertEqual(data["count"], 4)
+        self.assertEqual({ride["status"] for ride in data["results"]}, {"dropoff"})
+
+    def test_filter_by_rider_email_matches_case(self):
+        data = self.client.get(self.url, {"rider_email": "Ana.Reyes@example.com"}).data
+        self.assertEqual(data["count"], 6)
+        self.assertEqual({ride["id_rider"] for ride in data["results"]}, {self.ana.pk})
+        data = self.client.get(self.url, {"rider_email": "ana.reyes@example.com"}).data
+        self.assertEqual(data["count"], 0)
+
+    def test_filter_by_rider_id(self):
+        data = self.client.get(self.url, {"id_rider": self.ben.pk}).data
+        self.assertEqual(data["count"], 6)
+
+    def test_unknown_status_is_400(self):
+        self.assertEqual(self.client.get(self.url, {"status": "pikup"}).status_code, 400)
+
     def test_pagination(self):
         first = self.client.get(self.url).data
         self.assertEqual((first["count"], len(first["results"])), (12, 10))
