@@ -1,7 +1,9 @@
 from datetime import timedelta
 
+from django.db import connection
 from django.db.models import ProtectedError
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.generics import GenericAPIView
@@ -169,6 +171,15 @@ class RideFilterAndPaginationTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(self.admin)
 
+    def all_pages(self, params):
+        ids, page = [], 1
+        while True:
+            data = self.client.get(self.url, {**params, "page": page}).data
+            ids += [ride["id_ride"] for ride in data["results"]]
+            if data["next"] is None:
+                return ids
+            page += 1
+
     def test_filter_by_status(self):
         data = self.client.get(self.url, {"status": "dropoff"}).data
         self.assertEqual(data["count"], 4)
@@ -197,6 +208,22 @@ class RideFilterAndPaginationTests(APITestCase):
         self.assertIsNone(second["next"])
         self.assertEqual(len(self.client.get(self.url, {"page_size": 5}).data["results"]), 5)
         self.assertEqual(self.client.get(self.url, {"page": 99}).status_code, 404)
+
+    def test_pickup_time_sorting_covers_every_ride_once(self):
+        for ordering in ("pickup_time", "-pickup_time"):
+            with self.subTest(ordering=ordering):
+                ids = self.all_pages({"ordering": ordering, "page_size": 5})
+                self.assertEqual(sorted(ids), sorted(Ride.objects.values_list("pk", flat=True)))
+
+    def test_pickup_time_sorting_has_a_tie_breaker(self):
+        # Rides with the same pickup_time need a fixed order, or pages can repeat or skip them
+        for ordering, direction in (("pickup_time", "ASC"), ("-pickup_time", "DESC")):
+            with self.subTest(ordering=ordering), CaptureQueriesContext(connection) as ctx:
+                self.client.get(self.url, {"ordering": ordering})
+            sql = next(q["sql"] for q in ctx.captured_queries if "LIMIT" in q["sql"])
+            self.assertIn(
+                f'ORDER BY "ride"."pickup_time" {direction}, "ride"."id_ride" {direction}', sql
+            )
 
 
 class AdminPanelTests(TestCase):
