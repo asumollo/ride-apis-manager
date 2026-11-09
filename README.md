@@ -59,7 +59,7 @@ python manage.py runserver
 | `--admin-password` | `admin12345` | The admin user's password |
 | `--reset` | off | Delete all rides and events first |
 
-About 15% of rides are from the last 24 hours, so `todays_ride_events` has data.
+About 10% of rides are en route, 10% are picked up and 15% finished in the last 24 hours, so every status filter and `todays_ride_events` have data.
 
 ## Using the API
 

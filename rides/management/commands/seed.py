@@ -119,9 +119,13 @@ class Command(BaseCommand):
         return made, events_made, recent
 
     def plan_ride(self, rng: random.Random, now: datetime, opts: dict[str, Any]) -> RidePlan:
-        # About 1 in 7 rides is from the last 24 hours, so todays_ride_events has data
-        if rng.random() < 0.15:
-            pickup_time = now - timedelta(hours=rng.uniform(0, 24))
+        roll = rng.random()
+        if roll < 0.10:  # en route to the rider
+            pickup_time = now + timedelta(minutes=rng.uniform(0, 5))
+        elif roll < 0.20:  # picked up, not dropped off yet
+            pickup_time = now - timedelta(minutes=rng.uniform(5, 15))
+        elif roll < 0.35:  # finished today, so todays_ride_events has data
+            pickup_time = now - timedelta(hours=rng.uniform(3, 24))
         else:
             pickup_time = now - timedelta(days=rng.uniform(1, opts["days"]))
         en_route_at = pickup_time - timedelta(minutes=rng.uniform(5, 15))

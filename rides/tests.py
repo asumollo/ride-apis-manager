@@ -299,6 +299,11 @@ class SeedCommandTests(TestCase):
             self.assertEqual(ride.status, events[-1].description.removeprefix("Status changed to "))
             self.assertNotEqual(ride.rider_id, ride.driver_id)
 
+    def test_every_status_has_rides(self):
+        call_command("seed", rides=100, riders=5, drivers=3, stdout=StringIO())
+        statuses = set(Ride.objects.values_list("status", flat=True))
+        self.assertEqual(statuses, set(Ride.Status.values))
+
     def test_running_twice_reuses_users(self):
         call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
         call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
