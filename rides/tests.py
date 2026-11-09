@@ -217,10 +217,21 @@ class ErrorHandlingTests(APITestCase):
 
     def test_invalid_ride_fields_are_400(self):
         self.client.force_authenticate(self.admin)
-        payload = self.ride_payload(status="pikup", pickup_latitude="north")
+        payload = self.ride_payload(status="pikup", pickup_latitude=91, dropoff_longitude=-181)
         response = self.client.post(self.url, payload, format="json")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(set(response.data), {"status", "pickup_latitude"})
+        self.assertEqual(set(response.data), {"status", "pickup_latitude", "dropoff_longitude"})
+
+    def test_rider_and_driver_must_differ(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(
+            self.url, self.ride_payload(id_driver=self.rider.pk), format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        response = self.client.patch(
+            reverse("ride-detail", args=[self.ride.pk]), {"id_driver": self.rider.pk}
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_malformed_json_is_400(self):
         self.client.force_authenticate(self.admin)

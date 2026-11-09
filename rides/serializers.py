@@ -70,6 +70,15 @@ class RideSerializer(serializers.ModelSerializer):
             "todays_ride_events",
         ]
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        rider = attrs.get("rider", getattr(self.instance, "rider", None))
+        driver = attrs.get("driver", getattr(self.instance, "driver", None))
+        if rider is not None and rider == driver:
+            raise serializers.ValidationError(
+                {"id_driver": ["The driver can't also be the rider."]}
+            )
+        return attrs
+
     def get_todays_ride_events(self, ride: Ride) -> list[dict[str, Any]]:
         events = getattr(ride, "todays_ride_events", [])
         return [RideEventSerializer(event).data for event in events]
