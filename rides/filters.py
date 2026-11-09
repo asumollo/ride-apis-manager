@@ -6,7 +6,7 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
-from rides.models import Ride
+from rides.models import Ride, RideEvent
 
 
 class RideFilter(django_filters.FilterSet):
@@ -29,3 +29,11 @@ class StableOrderingFilter(OrderingFilter):
             tie_breaker = "-id_ride" if ordering[0].startswith("-") else "id_ride"
             ordering = [*ordering, tie_breaker]
         return ordering
+
+
+class RideEventFilter(django_filters.FilterSet):
+    id_ride = django_filters.NumberFilter(field_name="ride_id")
+
+    class Meta:
+        model = RideEvent
+        fields = ["id_ride"]

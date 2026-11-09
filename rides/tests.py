@@ -226,6 +226,53 @@ class RideFilterAndPaginationTests(APITestCase):
             )
 
 
+class RideEventFilterTests(APITestCase):
+    """
+    Filters on /api/ride-events/
+    """
+
+    admin: User
+    rides: list[Ride]
+    url: str
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass12345!", role="admin"
+        )
+        rider = User.objects.create_user(username="ana", email="ana@example.com")
+        driver = User.objects.create_user(username="chris", email="chris@example.com")
+        cls.rides = [
+            Ride.objects.create(
+                status=Ride.Status.DROPOFF,
+                rider=rider,
+                driver=driver,
+                pickup_latitude=14.6,
+                pickup_longitude=121.0,
+                dropoff_latitude=14.5,
+                dropoff_longitude=121.1,
+                pickup_time=timezone.now(),
+            )
+            for _ in range(2)
+        ]
+        for ride in cls.rides:
+            for step in ("en-route", "pickup", "dropoff"):
+                RideEvent.objects.create(ride=ride, description=f"Status changed to {step}")
+        cls.url = reverse("rideevent-list")
+
+    def setUp(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_filter_by_ride_returns_its_full_history(self):
+        ride = self.rides[0]
+        data = self.client.get(self.url, {"id_ride": ride.pk}).data
+        self.assertEqual(data["count"], 3)
+        self.assertEqual({event["id_ride"] for event in data["results"]}, {ride.pk})
+
+    def test_bad_ride_id_is_400(self):
+        self.assertEqual(self.client.get(self.url, {"id_ride": "abc"}).status_code, 400)
+
+
 class AdminPanelTests(TestCase):
     """
     What the Django admin shows

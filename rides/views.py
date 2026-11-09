@@ -1,7 +1,7 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
-from rides.filters import RideFilter, StableOrderingFilter
+from rides.filters import RideEventFilter, RideFilter, StableOrderingFilter
 from rides.models import Ride, RideEvent, User
 from rides.serializers import RideEventSerializer, RideSerializer, UserSerializer
 
@@ -22,3 +22,5 @@ class RideViewSet(viewsets.ModelViewSet):
 class RideEventViewSet(viewsets.ModelViewSet):
     queryset = RideEvent.objects.order_by("id_ride_event")
     serializer_class = RideEventSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = RideEventFilter
