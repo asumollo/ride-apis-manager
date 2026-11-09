@@ -16,7 +16,7 @@ from rides.serializers import RideEventSerializer, RideSerializer, UserSerialize
 
 
 class StrictModelViewSet(viewsets.ModelViewSet):
-    # Rejects unknown query parameters
+    # Rejects unknown or repeated query parameters
     extra_query_params: tuple[str, ...] = ()
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
@@ -41,6 +41,10 @@ class StrictModelViewSet(viewsets.ModelViewSet):
         if unknown:
             message = f"Unknown query parameter. Use one of: {', '.join(sorted(allowed))}."
             raise ValidationError({name: [message] for name in unknown})
+        params = request.query_params
+        repeated = sorted(name for name in params if len(params.getlist(name)) > 1)
+        if repeated:
+            raise ValidationError({name: ["Pass this parameter once."] for name in repeated})
 
 
 class UserViewSet(StrictModelViewSet):

@@ -250,6 +250,12 @@ class ErrorHandlingTests(APITestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(set(response.data), set(params))
 
+    def test_repeated_query_parameter_is_400(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(f"{self.url}?ordering=pickup_time&ordering=distance&lat=1&lng=2")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.data), {"ordering"})
+
     def test_malformed_json_is_400(self):
         self.client.force_authenticate(self.admin)
         response = self.client.post(self.url, '{"status": ', content_type="application/json")
