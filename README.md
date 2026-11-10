@@ -104,38 +104,6 @@ Measured on 500,000 rides. [PR #3](https://github.com/asumollo/ride-apis-manager
 | Index for today's events | 74.3 ms | 0.14 ms |
 | GiST index for the distance sort | 353.9 ms | 1.4 ms |
 
-### Reproducing the numbers
-
-Create a separate database with 500,000 rides, so your demo data stays as it is:
-
-```bash
-docker compose exec db createdb -U rides rides_bench
-docker compose exec -e POSTGRES_DB=rides_bench web python manage.py migrate
-docker compose exec -e POSTGRES_DB=rides_bench web python manage.py seed --rides 500000 --riders 5000 --drivers 500
-```
-
-Then run any of the scripts in [`benchmarks/`](benchmarks):
-
-```bash
-# Queries and time per page, for each way of loading the events
-docker compose exec -T -e POSTGRES_DB=rides_bench web python manage.py shell < benchmarks/bench_prefetch.py
-
-# Each index: EXPLAIN ANALYZE with it, then without it
-docker compose exec -T db psql -U rides -d rides_bench < benchmarks/a_pickup_time_sort.sql
-```
-
-| Script | Measures |
-|---|---|
-| `bench_prefetch.py` | Queries and time for 10 and 100 rides, with and without `select_related` and `Prefetch`. `SHOW_SQL=10` prints the queries instead. The API makes one more query for the page count. |
-| `a_pickup_time_sort.sql` | Sorting by pickup time |
-| `b_status_pickup_time_sort.sql` | Filtering by status while sorting, including a deep page |
-| `c_todays_events.sql` | Loading today's events for the first page |
-| `d_distance_sort.sql` | Sorting by distance |
-| `e_haversine_vs_earthdistance.sql` | earthdistance vs Haversine, and whether they return the same order |
-| `restore_indexes.sql` | Recreates any index a script left dropped |
-
-Each SQL script drops its index inside a transaction it rolls back, so the database keeps its indexes. Times depend on the machine, so expect different numbers with similar ratios. The PostGIS row was measured separately, since PostGIS needs a different database image.
-
 ### Choosing a distance method
 
 | Option | Nearest 10 pickups | Plan |
