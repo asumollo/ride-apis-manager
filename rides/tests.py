@@ -1,12 +1,16 @@
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
-from django.db import OperationalError, connection
+from django.core.exceptions import ValidationError
+from django.core.management import call_command
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from rest_framework.authtoken.models import Token
 from rest_framework.generics import GenericAPIView
 from rest_framework.test import APITestCase
 
@@ -246,6 +250,12 @@ class ErrorHandlingTests(APITestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(set(response.data), set(params))
 
+    def test_repeated_query_parameter_is_400(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(f"{self.url}?ordering=pickup_time&ordering=distance&lat=1&lng=2")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.data), {"ordering"})
+
     def test_malformed_json_is_400(self):
         self.client.force_authenticate(self.admin)
         response = self.client.post(self.url, '{"status": ', content_type="application/json")
@@ -275,6 +285,41 @@ class ErrorHandlingTests(APITestCase):
         ):
             response = self.client.get(self.url)
         self.assertEqual(response.status_code, 503)
+
+
+class SeedCommandTests(TestCase):
+    """
+    The seed command’s options or the data it creates
+    """
+
+    def test_creates_admin_users_and_realistic_rides(self):
+        call_command("seed", rides=40, riders=5, drivers=3, stdout=StringIO())
+
+        admin = User.objects.get(username="admin")
+        self.assertEqual(admin.role, User.Role.ADMIN)
+        self.assertTrue(Token.objects.filter(user=admin).exists())
+        self.assertEqual(Ride.objects.count(), 40)
+        for ride in Ride.objects.prefetch_related("events"):
+            events = sorted(ride.events.all(), key=lambda e: e.created_at)
+            self.assertEqual(events[0].description, "Status changed to en-route")
+            self.assertEqual(ride.status, events[-1].description.removeprefix("Status changed to "))
+            self.assertNotEqual(ride.rider_id, ride.driver_id)
+
+    def test_every_status_has_rides(self):
+        call_command("seed", rides=100, riders=5, drivers=3, stdout=StringIO())
+        statuses = set(Ride.objects.values_list("status", flat=True))
+        self.assertEqual(statuses, set(Ride.Status.values))
+
+    def test_running_twice_reuses_users(self):
+        call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
+        call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
+        self.assertEqual(User.objects.count(), 1 + 5 + 3)
+        self.assertEqual(Ride.objects.count(), 10)
+
+    def test_reset_replaces_rides(self):
+        call_command("seed", rides=5, riders=5, drivers=3, stdout=StringIO())
+        call_command("seed", rides=3, riders=5, drivers=3, reset=True, stdout=StringIO())
+        self.assertEqual(Ride.objects.count(), 3)
 
 
 class RideFilterAndPaginationTests(APITestCase):
@@ -445,6 +490,26 @@ class AdminPanelTests(TestCase):
                 response = self.client.get(reverse(f"admin:rides_{model}_changelist"))
                 self.assertEqual(response.status_code, 200)
 
+    def test_adding_a_user_requires_a_unique_email(self):
+        boss = User.objects.create_superuser("boss", "boss@example.com", "pass12345!")
+        self.client.force_login(boss)
+        url = reverse("admin:rides_user_add")
+        form = {
+            "username": "lea",
+            "usable_password": "true",
+            "password1": "rides-are-fun-42",
+            "password2": "rides-are-fun-42",
+            "role": "other",
+        }
+        for email in ("", "boss@example.com"):
+            with self.subTest(email=email):
+                response = self.client.post(url, {**form, "email": email})
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.context["adminform"].form.errors["email"])
+        response = self.client.post(url, {**form, "email": "lea@example.com"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(User.objects.get(username="lea").email, "lea@example.com")
+
 
 class UserApiTests(APITestCase):
     """
@@ -490,6 +555,20 @@ class UserApiTests(APITestCase):
         user.refresh_from_db()
         self.assertTrue(user.check_password("rides-are-fun-42"))
 
+    def test_update_with_password_is_one_write(self):
+        # Two writes could leave the email changed when the password save fails
+        user = User.objects.create_user(username="lea", email="lea@example.com")
+        url = reverse("user-detail", args=[user.pk])
+        payload = {"email": "lea.g@example.com", "password": "rides-are-fun-42"}
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.patch(url, payload, format="json")
+        self.assertEqual(response.status_code, 200)
+        updates = [q for q in ctx.captured_queries if q["sql"].startswith('UPDATE "users"')]
+        self.assertEqual(len(updates), 1)
+        user.refresh_from_db()
+        self.assertEqual(user.email, "lea.g@example.com")
+        self.assertTrue(user.check_password("rides-are-fun-42"))
+
     def test_password_cant_be_close_to_the_username(self):
         payload = {"username": "lea.reyes", "email": "lea@example.com", "password": "lea.reyes1"}
         response = self.client.post(self.url, payload, format="json")
@@ -505,7 +584,7 @@ class UserApiTests(APITestCase):
 
 class RideModelTests(TestCase):
     """
-    What deleting a ride or a user does to the rows linked to it
+    What deleting a ride or a user does to the rows linked to it, and rules the database enforces
     """
 
     ride: Ride
@@ -533,6 +612,29 @@ class RideModelTests(TestCase):
     def test_user_on_a_ride_cant_be_deleted(self):
         with self.assertRaises(ProtectedError):
             self.ride.driver.delete()
+
+    def test_rider_cant_be_the_driver(self):
+        ride = Ride(
+            status=Ride.Status.PICKUP,
+            rider=self.ride.rider,
+            driver=self.ride.rider,
+            pickup_latitude=14.6,
+            pickup_longitude=121.0,
+            dropoff_latitude=14.5,
+            dropoff_longitude=121.1,
+            pickup_time=timezone.now(),
+        )
+        # The admin's form check
+        with self.assertRaisesMessage(ValidationError, "The driver can't also be the rider."):
+            ride.full_clean()
+        # Any path that skips validation
+        with transaction.atomic(), self.assertRaises(IntegrityError):
+            ride.save()
+
+    def test_coordinates_must_be_in_range(self):
+        # update() skips model validation, so only the database can stop it
+        with transaction.atomic(), self.assertRaises(IntegrityError):
+            Ride.objects.filter(pk=self.ride.pk).update(pickup_latitude=500)
 
 
 class UserManagerTests(TestCase):

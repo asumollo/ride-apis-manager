@@ -33,6 +33,7 @@ repos:
           - djangorestframework==3.18.3
           - django-filter==26.2
           - psycopg[binary]==3.3.8
+          - python-dotenv==1.2.4
           - django-stubs==6.1.2
           - djangorestframework-stubs==3.18.2
           - types-django-filter==26.2.0.20261107

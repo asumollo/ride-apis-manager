@@ -38,11 +38,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def update(self, user: User, validated_data: dict[str, Any]) -> User:
         password = validated_data.pop("password", None)
-        user = super().update(user, validated_data)
         if password:
             user.set_password(password)
-            user.save(update_fields=["password"])
-        return user
+        return super().update(user, validated_data)
 
 
 class RideEventSerializer(serializers.ModelSerializer):
