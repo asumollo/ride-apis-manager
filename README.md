@@ -190,3 +190,4 @@ Out of scope for this assessment, in order of impact:
 5. **Caching the page count** in Redis. The list itself changes too often to cache, and it's already fast.
 6. **Background jobs** (Celery, or a nightly materialized view) for heavy reports like long trips. Nothing in the API is slow enough to need a queue yet.
 7. **Logging.** Locally, the dev server already prints every request while unexpected errors are logged with a traceback. In production I'd add JSON logs with each request's duration and user, and send errors to Sentry.
+8. **API versioning.** There's one client, so the routes live under `/api/`. Before the first breaking change I'd move them to `/api/v1/` with DRF's `URLPathVersioning`, so existing clients keep working.
